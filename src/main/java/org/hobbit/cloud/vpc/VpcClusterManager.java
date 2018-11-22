@@ -26,9 +26,8 @@ public class VpcClusterManager implements ICloudClusterManager {
     protected AbstractStackHandler vpcStackHandler;
     protected AbstractStackHandler bastionStackHandler;
     protected AbstractStackHandler natStackHandler;
-    private List<List<AbstractStackHandler>> stackList;
+    protected List<List<AbstractStackHandler>> stackList;
     protected long clusterCreated;
-
 
 
     public VpcClusterManager(String clusterName, String sshKeyName){
@@ -42,8 +41,7 @@ public class VpcClusterManager implements ICloudClusterManager {
         }
 
 
-        VPCStackHandler.Builder vpcHandlerBuilder = new VPCStackHandler.Builder<>()
-                .name(clusterName+"-vpc");
+        VPCStackHandler.Builder vpcHandlerBuilder = new VPCStackHandler.Builder<>().name(clusterName+"-vpc");
 
         BastionStackHandler.Builder bastionBuilder = new BastionStackHandler.Builder<>()
                 .name(clusterName+"-bastion")

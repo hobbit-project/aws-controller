@@ -24,6 +24,12 @@ public class VpcDependentStackHandler extends AbstractStackHandler {
             vpcStackName = value;
             return (B)this;
         }
+
+        public B name(String value){
+            name = value;
+            return (B)this;
+        }
+
     }
 
 

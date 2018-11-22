@@ -123,7 +123,7 @@ public class AWSController {
         properties.put("role_arn", aws_role_arn);
         properties.put("source_profile", "default");
 
-        BasicProfile roleProfile = new BasicProfile("gs", properties);
+        BasicProfile roleProfile = new BasicProfile("roleProfile", properties);
 
         Map<String, BasicProfile> allProfiles = new HashMap<>();
         allProfiles.put(defaultProfile.getProfileName(), defaultProfile);

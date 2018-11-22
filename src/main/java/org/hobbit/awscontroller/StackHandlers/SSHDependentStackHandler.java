@@ -19,9 +19,14 @@ public abstract class SSHDependentStackHandler extends VpcDependentStackHandler 
 
 
 
-    public static class Builder<C extends VpcDependentStackHandler, B extends Builder<C,B>> extends VpcDependentStackHandler.Builder<C,B>{
+    public abstract static class Builder<C extends VpcDependentStackHandler, B extends Builder<C,B>> extends VpcDependentStackHandler.Builder<C,B>{
 
         protected String sshKeyName;
+
+        public B vpcStackName(String value){
+            vpcStackName = value;
+            return (B)this;
+        }
 
         public B sshKeyName(String value){
             sshKeyName = value;

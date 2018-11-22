@@ -21,6 +21,8 @@ public abstract class AbstractStackHandler {
     protected Map<String, String> parameters;
     protected Map<String, String> resources;
     protected Map<String, String> tags;
+    protected String bodyUrl;
+    protected String bodyFilePath;
 
     public AbstractStackHandler(Builder builder){
         name = builder.name;
@@ -37,12 +39,21 @@ public abstract class AbstractStackHandler {
 
     }
 
-    public String getBodyUrl(){
-        return null;
+    public void setBodyUrl(String value){
+        bodyUrl = value;
     }
-    public String getBodyFilePath(){
-        return null;
+
+    public void setBodyFilePath(String value){
+        bodyFilePath = value;
     }
+
+
+//    public String getBodyUrl(){
+//        return bodyUrl;
+//    }
+//    public String getBodyFilePath(){
+//        return bodyFilePath;
+//    }
 
     public Callable preExecute;
     public Callable postExecute;
@@ -90,11 +101,13 @@ public abstract class AbstractStackHandler {
         createStackRequest.setStackName(getName());
         createStackRequest.setCapabilities(Arrays.asList(new String[]{ "CAPABILITY_IAM" }));
 
-        if(getBodyUrl()!=null)
-             createStackRequest.setTemplateURL(getBodyUrl());
-        else {
-            String body = getBodyFromFile(getBodyFilePath());
+        if(bodyFilePath!=null){
+            String body = getBodyFromFile(bodyFilePath);
             createStackRequest.setTemplateBody(body);
+        }else if(bodyUrl!=null)
+             createStackRequest.setTemplateURL(bodyUrl);
+        else {
+            throw new Exception("Stack body (file or URL) is not specified");
         }
 
 
@@ -173,7 +186,7 @@ public abstract class AbstractStackHandler {
     //public void prepareDeleteRequest();
 
 
-    public static class Builder<C extends AbstractStackHandler, B extends Builder<C,B>> {
+    public abstract static class Builder<C extends AbstractStackHandler, B extends Builder<C,B>> {
 
 
         protected String name;
