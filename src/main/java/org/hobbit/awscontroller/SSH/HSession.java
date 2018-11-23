@@ -7,6 +7,7 @@ import com.jcraft.jsch.UserInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -31,6 +32,8 @@ public class HSession {
         this.port = port;
 
         try {
+            if(!new File(keyfilePath).exists())
+                throw new Exception(keyfilePath+" not exists!");
             JSch jsch = new JSch();
             jsch.addIdentity(keyfilePath);
 
