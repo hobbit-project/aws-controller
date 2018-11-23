@@ -83,9 +83,18 @@ public abstract class AbstractStackHandler {
         return resources;
     };
 
-    public void setTag(String key, String value) {
+    public AbstractStackHandler setTag(String key, String value) {
 
         tags.put(key, value);
+        return this;
+
+    }
+
+    public AbstractStackHandler setName(String value) {
+
+        name = value;
+        return this;
+
     }
 
     public Map<String, String> getTags(){
@@ -161,16 +170,22 @@ public abstract class AbstractStackHandler {
         return createStackRequest;
     }
 
-    public AbstractStackHandler appendParameters(Map value){
+    public AbstractStackHandler appendParameters(Map<String, String> value){
         if(value!=null)
             parameters.putAll(value);
         return this;
     }
 
-    public void setResources(List<StackResourceSummary> stackResourceSummaries){
+    public AbstractStackHandler setParameter(String key, String value){
+        parameters.put(key, value);
+        return this;
+    }
+
+    public AbstractStackHandler setResources(List<StackResourceSummary> stackResourceSummaries){
         resources = new HashMap<>();
         for(StackResourceSummary summary : stackResourceSummaries)
             resources.put(summary.getLogicalResourceId(), summary.getPhysicalResourceId());
+        return this;
     }
 
 //    public String create() throws Exception {
