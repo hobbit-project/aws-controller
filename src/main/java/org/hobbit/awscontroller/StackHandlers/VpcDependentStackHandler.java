@@ -8,7 +8,8 @@ public class VpcDependentStackHandler extends AbstractStackHandler {
     public VpcDependentStackHandler(Builder builder) {
         super(builder);
         vpcStackName = builder.vpcStackName;
-        parameters.put("ParentVPCStack", builder.vpcStackName);
+        if(builder.vpcStackName!=null)
+            parameters.put("ParentVPCStack", builder.vpcStackName);
 
     }
 

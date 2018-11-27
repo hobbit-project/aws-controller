@@ -4,7 +4,7 @@
 
     <groupId>org.hobbit</groupId>
     <artifactId>aws-controller</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.1-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <properties>

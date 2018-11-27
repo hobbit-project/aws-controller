@@ -28,17 +28,19 @@ public class VpcClusterManager implements ICloudClusterManager {
     protected AbstractStackHandler natStackHandler;
     protected List<List<AbstractStackHandler>> stackList;
     protected long clusterCreated;
+    protected String clusterName;
 
 
     public VpcClusterManager(String clusterName, String sshKeyName){
         awsController = new AWSController();
+        this.clusterName = clusterName;
 
-        try {
-            awsController.init();
-        }
-        catch (Exception e){
-            LOGGER.error("Failed to init aws controller: {}", e.getLocalizedMessage());
-        }
+//        try {
+//            awsController.init();
+//        }
+//        catch (Exception e){
+//            LOGGER.error("Failed to init aws controller: {}", e.getLocalizedMessage());
+//        }
 
 
         VPCStackHandler.Builder vpcHandlerBuilder = new VPCStackHandler.Builder<>().name(clusterName+"-vpc");

@@ -12,6 +12,7 @@ import com.amazonaws.services.neptune.AmazonNeptune;
 import com.amazonaws.services.neptune.AmazonNeptuneClient;
 import com.amazonaws.services.neptune.AmazonNeptuneClientBuilder;
 import com.amazonaws.services.neptune.model.AddRoleToDBClusterRequest;
+import org.apache.http.client.CredentialsProvider;
 import org.hobbit.awscontroller.StackHandlers.AbstractStackHandler;
 import com.amazonaws.auth.AWSCredentialsProvider;
 import com.amazonaws.auth.EnvironmentVariableCredentialsProvider;
@@ -60,114 +61,73 @@ public class AWSController {
 
     public static ExecutorService es;
     Semaphore finishedMutex = new Semaphore(0);
+    AWSCredentialsProvider credentialsProvider;
+    //private ProfileAssumeRoleCredentialsProvider credentialsProvider;
 
     public AWSController(){
-
+        es = Executors.newFixedThreadPool(4);
     }
 
     public AWSController(String aws_access_key_id, String aws_secret_key, String aws_role_arn, String aws_region){
+        this();
         this.aws_access_key_id = aws_access_key_id;
         this.aws_secret_key = aws_secret_key;
         this.aws_role_arn = aws_role_arn;
         this.aws_region = aws_region;
     }
 
-    public void setAws_access_key_id(String aws_access_key_id) {
-        this.aws_access_key_id = aws_access_key_id;
-    }
 
-    public void setAws_secret_key(String aws_secret_key) {
-        this.aws_secret_key = aws_secret_key;
-    }
+    private AWSCredentialsProvider getCredentialsProvider() throws Exception {
 
-    public void setAws_role_arn(String aws_role_arn) {
-        this.aws_role_arn = aws_role_arn;
-    }
+        if(credentialsProvider==null) {
+            if (aws_access_key_id == null)
+                if (!System.getenv().containsKey("AWS_ACCESS_KEY_ID"))
+                    throw new Exception("AWS_ACCESS_KEY_ID is missing");
+                else aws_access_key_id = System.getenv("AWS_ACCESS_KEY_ID");
 
-    public void setAws_region(String aws_region) {
-        this.aws_region = aws_region;
-    }
+            if (aws_secret_key == null)
+                if (!System.getenv().containsKey("AWS_SECRET_KEY"))
+                    throw new Exception("AWS_SECRET_KEY is missing");
+                else aws_secret_key = System.getenv("AWS_SECRET_KEY");
 
-    public void init() throws Exception {
+            if (aws_role_arn == null)
+                if (!System.getenv().containsKey("AWS_ROLE_ARN"))
+                    throw new Exception("AWS_ROLE_ARN is missing");
+                else aws_role_arn = System.getenv("AWS_ROLE_ARN");
 
-        es = Executors.newFixedThreadPool(4);
+            if (aws_region == null)
+                if (!System.getenv().containsKey("AWS_REGION"))
+                    throw new Exception("AWS_REGION is missing");
+                else aws_region = System.getenv("AWS_REGION");
 
-        if(aws_access_key_id==null)
-            if(!System.getenv().containsKey("AWS_ACCESS_KEY_ID"))
-                throw new Exception("AWS_ACCESS_KEY_ID is missing");
-            else aws_access_key_id = System.getenv("AWS_ACCESS_KEY_ID");
+            Map<String, String> defaultProfileProperties = new HashMap<>();
+            defaultProfileProperties.put("region", aws_region);
+            defaultProfileProperties.put("aws_access_key_id", aws_access_key_id);
+            defaultProfileProperties.put("aws_secret_access_key", aws_secret_key);
 
-        if(aws_secret_key==null)
-            if(!System.getenv().containsKey("AWS_SECRET_KEY"))
-                throw new Exception("AWS_SECRET_KEY is missing");
-            else aws_secret_key = System.getenv("AWS_SECRET_KEY");
+            BasicProfile defaultProfile = new BasicProfile("default", defaultProfileProperties);
 
-        if(aws_role_arn==null)
-            if(!System.getenv().containsKey("AWS_ROLE_ARN"))
-                throw new Exception("AWS_ROLE_ARN is missing");
-            else aws_role_arn = System.getenv("AWS_ROLE_ARN");
+            Map<String, String> properties = new HashMap<>();
+            properties.put("role_arn", aws_role_arn);
+            properties.put("source_profile", "default");
 
-        if(aws_region==null)
-            if( !System.getenv().containsKey("AWS_REGION"))
-                throw new Exception("AWS_REGION is missing");
-            else aws_region = System.getenv("AWS_REGION");
+            BasicProfile roleProfile = new BasicProfile("roleProfile", properties);
 
-        Map<String, String> defaultProfileProperties = new HashMap<>();
-        defaultProfileProperties.put("region", aws_region);
-        defaultProfileProperties.put("aws_access_key_id", aws_access_key_id);
-        defaultProfileProperties.put("aws_secret_access_key", aws_secret_key);
+            Map<String, BasicProfile> allProfiles = new HashMap<>();
+            allProfiles.put(defaultProfile.getProfileName(), defaultProfile);
+            allProfiles.put(roleProfile.getProfileName(), roleProfile);
 
-        BasicProfile defaultProfile = new BasicProfile("default", defaultProfileProperties);
+            credentialsProvider = new ProfileAssumeRoleCredentialsProvider(
+                    new ProfileCredentialsService() {
+                        @Override
+                        public AWSCredentialsProvider getAssumeRoleCredentialsProvider(RoleInfo roleInfo) {
+                            return new STSProfileCredentialsServiceProvider(roleInfo);
+                        }
+                    }, new AllProfiles(allProfiles), roleProfile
+            );
 
-        Map<String, String> properties = new HashMap<>();
-        properties.put("role_arn", aws_role_arn);
-        properties.put("source_profile", "default");
-
-        BasicProfile roleProfile = new BasicProfile("roleProfile", properties);
-
-        Map<String, BasicProfile> allProfiles = new HashMap<>();
-        allProfiles.put(defaultProfile.getProfileName(), defaultProfile);
-        allProfiles.put(roleProfile.getProfileName(), roleProfile);
-
-        AWSCredentialsProvider credentialsProvider = new ProfileAssumeRoleCredentialsProvider(
-                new ProfileCredentialsService(){
-                    @Override
-                    public AWSCredentialsProvider getAssumeRoleCredentialsProvider(RoleInfo roleInfo) {
-                        return new STSProfileCredentialsServiceProvider(roleInfo);
-                    }
-                }, new AllProfiles(allProfiles), roleProfile
-        );
-
-        AmazonCloudFormationClientBuilder amazonCloudFormationClientBuilder = AmazonCloudFormationClientBuilder.standard();
-        amazonCloudFormationClientBuilder.setRegion(aws_region);
-        amazonCloudFormationClientBuilder.setCredentials(new EnvironmentVariableCredentialsProvider());
-        amazonCloudFormationClientBuilder.setCredentials(credentialsProvider);
-        amazonCloudFormation = amazonCloudFormationClientBuilder.build();
-
-        AmazonAutoScalingClientBuilder amazonAutoScalingClientBuilder = AmazonAutoScalingClientBuilder.standard();
-        amazonAutoScalingClientBuilder.setRegion(aws_region);
-        amazonAutoScalingClientBuilder.setCredentials(new EnvironmentVariableCredentialsProvider());
-        amazonAutoScalingClientBuilder.setCredentials(credentialsProvider);
-        amazonAutoScaling = amazonAutoScalingClientBuilder.build();
-
-        AmazonEC2AsyncClientBuilder amazonEC2AsyncClientBuilder = AmazonEC2AsyncClientBuilder.standard();
-        amazonEC2AsyncClientBuilder.setRegion(aws_region);
-        amazonEC2AsyncClientBuilder.setCredentials(new EnvironmentVariableCredentialsProvider());
-        amazonEC2AsyncClientBuilder.setCredentials(credentialsProvider);
-        amazonEC2 = amazonEC2AsyncClientBuilder.build();
-
-        AmazonS3ClientBuilder amazonS3ClientBuilder = AmazonS3ClientBuilder.standard();
-        amazonS3ClientBuilder.setRegion(aws_region);
-        amazonS3ClientBuilder.setCredentials(new EnvironmentVariableCredentialsProvider());
-        amazonS3ClientBuilder.setCredentials(credentialsProvider);
-        amazonS3 = amazonS3ClientBuilder.build();
-
-        AmazonNeptuneClientBuilder amazonNeptuneClientBuilder = AmazonNeptuneClientBuilder.standard();
-        amazonNeptuneClientBuilder.setRegion(aws_region);
-        amazonNeptuneClientBuilder.setCredentials(new EnvironmentVariableCredentialsProvider());
-        amazonNeptuneClientBuilder.setCredentials(credentialsProvider);
-        amazonNeptune = amazonNeptuneClientBuilder.build();
-
+        }
+        return credentialsProvider;
 //        AmazonAutoScalingClientBuilder amazonAutoScalingBuilder = AmazonAutoScalingClientBuilder.standard();
 //        amazonAutoScalingBuilder.setRegion(AWS_REGION_EU);
 //        amazonAutoScalingBuilder.setCredentials(new EnvironmentVariableCredentialsProvider());
@@ -180,23 +140,58 @@ public class AWSController {
         return aws_region;
     }
 
-    public AmazonAutoScaling getAmazonAutoScaling() {
-        return amazonAutoScaling;
-    }
 
-    public AmazonCloudFormation getAmazonCloudFormation() {
+    public AmazonCloudFormation getAmazonCloudFormation() throws Exception {
+        if(amazonCloudFormation==null) {
+            AmazonCloudFormationClientBuilder amazonCloudFormationClientBuilder = AmazonCloudFormationClientBuilder.standard();
+            amazonCloudFormationClientBuilder.setRegion(aws_region);
+            amazonCloudFormationClientBuilder.setCredentials(new EnvironmentVariableCredentialsProvider());
+            amazonCloudFormationClientBuilder.setCredentials(getCredentialsProvider());
+            amazonCloudFormation = amazonCloudFormationClientBuilder.build();
+        }
         return amazonCloudFormation;
     }
 
-    public AmazonEC2 getAmazonEC2() {
+    public AmazonAutoScaling getAmazonAutoScaling() throws Exception {
+        if(amazonAutoScaling==null) {
+            AmazonAutoScalingClientBuilder amazonAutoScalingClientBuilder = AmazonAutoScalingClientBuilder.standard();
+            amazonAutoScalingClientBuilder.setRegion(aws_region);
+            amazonAutoScalingClientBuilder.setCredentials(new EnvironmentVariableCredentialsProvider());
+            amazonAutoScalingClientBuilder.setCredentials(getCredentialsProvider());
+            amazonAutoScaling = amazonAutoScalingClientBuilder.build();
+        }
+        return amazonAutoScaling;
+
+    }
+
+    public AmazonEC2 getAmazonEC2() throws Exception {
+        if(amazonEC2==null) {
+            AmazonEC2AsyncClientBuilder amazonEC2AsyncClientBuilder = AmazonEC2AsyncClientBuilder.standard();
+            amazonEC2AsyncClientBuilder.setRegion(aws_region);
+            amazonEC2AsyncClientBuilder.setCredentials(new EnvironmentVariableCredentialsProvider());
+            amazonEC2AsyncClientBuilder.setCredentials(getCredentialsProvider());
+            amazonEC2 = amazonEC2AsyncClientBuilder.build();
+        }
         return amazonEC2;
     }
 
-    public AmazonS3 getAmazonS3() {
+    public AmazonS3 getAmazonS3() throws Exception {
+        if(amazonS3==null) {
+            AmazonS3ClientBuilder amazonS3ClientBuilder = AmazonS3ClientBuilder.standard();
+            amazonS3ClientBuilder.setRegion(aws_region);
+            amazonS3ClientBuilder.setCredentials(new EnvironmentVariableCredentialsProvider());
+            amazonS3ClientBuilder.setCredentials(getCredentialsProvider());
+            amazonS3 = amazonS3ClientBuilder.build();
+        }
         return amazonS3;
     }
 
-    public AmazonNeptune getAmazonNeptune() {
+    public AmazonNeptune getAmazonNeptune() throws Exception {
+        AmazonNeptuneClientBuilder amazonNeptuneClientBuilder = AmazonNeptuneClientBuilder.standard();
+        amazonNeptuneClientBuilder.setRegion(aws_region);
+        amazonNeptuneClientBuilder.setCredentials(new EnvironmentVariableCredentialsProvider());
+        amazonNeptuneClientBuilder.setCredentials(getCredentialsProvider());
+        amazonNeptune = amazonNeptuneClientBuilder.build();
         return amazonNeptune;
     }
 
@@ -208,11 +203,11 @@ public class AWSController {
         while(ret.size()==0 && nextToken!=null){
 
             if(nextToken.equals(""))
-                result = amazonCloudFormation.listStacks();
+                result = getAmazonCloudFormation().listStacks();
             else{
                 ListStacksRequest listStacksRequest = new ListStacksRequest();
                 listStacksRequest.setNextToken(nextToken);
-                result = amazonCloudFormation.listStacks(listStacksRequest);
+                result = getAmazonCloudFormation().listStacks(listStacksRequest);
             }
             nextToken = result.getNextToken();
             ret = result.getStackSummaries().stream().filter(
@@ -230,7 +225,7 @@ public class AWSController {
         AddRoleToDBClusterRequest request = new AddRoleToDBClusterRequest();
         request.setDBClusterIdentifier(clusterId);
         request.setRoleArn(roleArn);
-        amazonNeptune.addRoleToDBCluster(request);
+        getAmazonNeptune().addRoleToDBCluster(request);
     }
 
     public StackSummary findStackById(String id) throws Exception{
@@ -241,11 +236,11 @@ public class AWSController {
         while(ret.size()==0 && nextToken!=null){
 
             if(nextToken.equals(""))
-                result = amazonCloudFormation.listStacks();
+                result = getAmazonCloudFormation().listStacks();
             else{
                 ListStacksRequest listStacksRequest = new ListStacksRequest();
                 listStacksRequest.setNextToken(nextToken);
-                result = amazonCloudFormation.listStacks(listStacksRequest);
+                result = getAmazonCloudFormation().listStacks(listStacksRequest);
             }
             nextToken = result.getNextToken();
             ret = result.getStackSummaries().stream().filter(
@@ -283,7 +278,7 @@ public class AWSController {
        ListStackResourcesRequest listStackResourcesRequest = new ListStackResourcesRequest();
        listStackResourcesRequest.setStackName(stackName);
        try {
-           ListStackResourcesResult result = amazonCloudFormation.listStackResources(listStackResourcesRequest);
+           ListStackResourcesResult result = getAmazonCloudFormation().listStackResources(listStackResourcesRequest);
            ret = result.getStackResourceSummaries();
            if (awsResourceType != null)
                ret = ret.stream().filter(item -> item.getResourceType().equals(awsResourceType)).collect(Collectors.toList());
@@ -304,7 +299,7 @@ public class AWSController {
         DescribeStacksRequest request = new DescribeStacksRequest();
         request.setStackName(stackName);
         try {
-            DescribeStacksResult  result = amazonCloudFormation.describeStacks(request);
+            DescribeStacksResult  result = getAmazonCloudFormation().describeStacks(request);
             ret = result.getStacks().get(0).getOutputs();
         }
         catch (Exception e){
@@ -325,7 +320,7 @@ public class AWSController {
     public List<AutoScalingGroup> getAutoscalingGroupByName(String name) throws Exception{
         DescribeAutoScalingGroupsRequest request = new DescribeAutoScalingGroupsRequest();
         request.setAutoScalingGroupNames(Arrays.asList(new String[]{ name }));
-        DescribeAutoScalingGroupsResult result = amazonAutoScaling.describeAutoScalingGroups(request);
+        DescribeAutoScalingGroupsResult result = getAmazonAutoScaling().describeAutoScalingGroups(request);
         List<AutoScalingGroup>  list = result.getAutoScalingGroups();
         return list;
     }
@@ -333,7 +328,7 @@ public class AWSController {
     public List<Instance> getEC2InstanceByName(String name) throws Exception{
         DescribeInstancesRequest request = new DescribeInstancesRequest();
         request.setInstanceIds(Arrays.asList(new String[]{ name }));
-        DescribeInstancesResult result = amazonEC2.describeInstances(request);
+        DescribeInstancesResult result = getAmazonEC2().describeInstances(request);
         List<Instance> ret = result.getReservations().get(0).getInstances();
         return ret;
     }
@@ -396,7 +391,7 @@ public class AWSController {
 
 //    public static void createPubliclyAvailableBucket(String bucketName){
 //
-//        if(amazonS3.listBuckets().stream().filter(bucket -> bucket.getName().equals(bucketName)).count()>0) {
+//        if(getAmazonS3().listBuckets().stream().filter(bucket -> bucket.getName().equals(bucketName)).count()>0) {
 //            logger.info("Bucket {} already created", bucketName);
 //
 //        }else {
@@ -406,18 +401,18 @@ public class AWSController {
 //            acl.grantPermission(GroupGrantee.AllUsers, Permission.Write);
 //
 //            request.setAccessControlList(acl);
-//            Bucket result = amazonS3.createBucket(request);
+//            Bucket result = getAmazonS3().createBucket(request);
 //            logger.info("Bucket {} created", bucketName);
 //        }
 //    }
-    public void createBucket(String bucketName){
+    public void createBucket(String bucketName) throws Exception {
         createBucket(bucketName, null);
     }
 
-    public void createBucket(String bucketName, String region){
+    public void createBucket(String bucketName, String region) throws Exception {
         if(region==null)
             region = aws_region;
-        if(amazonS3.listBuckets().stream().filter(bucket -> bucket.getName().equals(bucketName)).count()>0) {
+        if(getAmazonS3().listBuckets().stream().filter(bucket -> bucket.getName().equals(bucketName)).count()>0) {
             logger.info("Bucket {} already created", bucketName);
 
         }else {
@@ -427,21 +422,21 @@ public class AWSController {
             //acl.grantPermission(GroupGrantee.AllUsers, Permission.Write);
 
             //request.setAccessControlList(acl);
-            Bucket result = amazonS3.createBucket(request);
+            Bucket result = getAmazonS3().createBucket(request);
             logger.info("Bucket {} created", bucketName);
         }
     }
 
     public void putObjectToS3(String bucketName, File file) throws Exception{
         PutObjectRequest request = new PutObjectRequest(bucketName, file.getName() ,file);
-        PutObjectResult result = amazonS3.putObject(request);
+        PutObjectResult result = getAmazonS3().putObject(request);
     }
 
-    public void switchBucketAvailability(String bucketName, Boolean publicWrite){
+    public void switchBucketAvailability(String bucketName, Boolean publicWrite) throws Exception {
         logger.info("Switching bucket availability (publicWrite={}) for bucket {} ", publicWrite, bucketName);
         Collection<Grant> grantCollection = new ArrayList<Grant>();
 
-        Grant grant1 = new Grant(new CanonicalGrantee(amazonS3.getS3AccountOwner().getId()), Permission.FullControl);
+        Grant grant1 = new Grant(new CanonicalGrantee(getAmazonS3().getS3AccountOwner().getId()), Permission.FullControl);
         grantCollection.add(grant1);
 
         if(publicWrite) {
@@ -449,27 +444,27 @@ public class AWSController {
             grantCollection.add(grant2);
         }
 
-        AccessControlList acl = amazonS3.getBucketAcl(bucketName);
+        AccessControlList acl = getAmazonS3().getBucketAcl(bucketName);
         acl.getGrantsAsList().clear();
         acl.getGrantsAsList().addAll(grantCollection);
-        amazonS3.setBucketAcl(bucketName, acl);
+        getAmazonS3().setBucketAcl(bucketName, acl);
     }
 
-    public void setPublicAvailabilityToS3File(String bucketName, String fileKey){
+    public void setPublicAvailabilityToS3File(String bucketName, String fileKey) throws Exception {
 
         logger.info("Setting Public Availability To S3 File {} (bucket={})", fileKey, bucketName);
         Collection<Grant> grantCollection = new ArrayList<Grant>();
 
-        Grant grant1 = new Grant(new CanonicalGrantee(amazonS3.getS3AccountOwner().getId()), Permission.FullControl);
+        Grant grant1 = new Grant(new CanonicalGrantee(getAmazonS3().getS3AccountOwner().getId()), Permission.FullControl);
         grantCollection.add(grant1);
 
         Grant grant2 = new Grant(GroupGrantee.AllUsers, Permission.Read);
         grantCollection.add(grant2);
 
-        AccessControlList objectAcl = amazonS3.getObjectAcl(bucketName, fileKey);
+        AccessControlList objectAcl = getAmazonS3().getObjectAcl(bucketName, fileKey);
         objectAcl.getGrantsAsList().clear();
         objectAcl.getGrantsAsList().addAll(grantCollection);
-        amazonS3.setObjectAcl(bucketName, fileKey, objectAcl);
+        getAmazonS3().setObjectAcl(bucketName, fileKey, objectAcl);
     }
 
 //    public void createStacksSequental(List<AbstractStackHandler> stackList) throws Exception {
@@ -541,7 +536,7 @@ public class AWSController {
                             requiresRecreation = true;
 
                         if (requiresRecreation) {
-                            logger.info("Stack {} requires recreation with new parameters. The existing will be deleted", stack.getName());
+                            logger.info("Stack {} requires recreation with new parameters. The existing stack will be deleted", stack.getName());
                             levelToDelete.add(stack);
                             names.add(stack.getName());
                         }
@@ -666,7 +661,7 @@ public class AWSController {
     public List<Parameter> getStackParameters(String stackName) throws Exception{
         DescribeStacksRequest req = new DescribeStacksRequest();
         req.setStackName(stackName);
-        DescribeStacksResult res = amazonCloudFormation.describeStacks(req);
+        DescribeStacksResult res = getAmazonCloudFormation().describeStacks(req);
         if(res.getStacks().size()>0)
             return res.getStacks().get(0).getParameters();
         return null;
@@ -700,7 +695,7 @@ public class AWSController {
             stack.preExecute.call();
 
         CreateStackRequest createStackRequest = stack.prepareCreateRequest(this);
-        CreateStackResult createStackResult = amazonCloudFormation.createStack(createStackRequest);
+        CreateStackResult createStackResult = getAmazonCloudFormation().createStack(createStackRequest);
         String stackId = createStackResult.getStackId();
         //try {
         waitForCompletion(stack, "CREATE_COMPLETE", "ROLLBACK_");
@@ -727,7 +722,7 @@ public class AWSController {
             logger.info("Deleting stack {}", stack.getName());
             DeleteStackRequest stackRequest = new DeleteStackRequest();
             stackRequest.setStackName(stackSummary.getStackName());
-            amazonCloudFormation.deleteStack(stackRequest);
+            getAmazonCloudFormation().deleteStack(stackRequest);
             waitForCompletion(stack, "DELETE_COMPLETE", "CREATE_COMPLETE");
         }
 
@@ -736,16 +731,16 @@ public class AWSController {
 //    public static void uploadToBucket(){
 //        String bucketName = "testbucketswarm";
 //        String fileObjKeyName = "someKey";
-//        //amazonS3.createBucket(bucketName);
+//        //getAmazonS3().createBucket(bucketName);
 //
 //        URL url = Resources.getResource("AWS/vpc-1azs.yaml");
 //        File file = new File(url.getPath());
 //
 //        //PutObjectRequest request = new PutObjectRequest(bucketName, fileObjKeyName, "Value");
-//        //amazonS3.putObject(bucketName, fileObjKeyName, "Value");
-//        //amazonS3.putObject(bucketName, fileObjKeyName, "Value");
+//        //getAmazonS3().putObject(bucketName, fileObjKeyName, "Value");
+//        //getAmazonS3().putObject(bucketName, fileObjKeyName, "Value");
 //
-//        //S3Object ret = amazonS3.getObject(new GetObjectRequest(bucketName, fileObjKeyName));
+//        //S3Object ret = getAmazonS3().getObject(new GetObjectRequest(bucketName, fileObjKeyName));
 //        //ret.getObjectContent();
 //
 ////        AccessControlList acl = new AccessControlList();
@@ -753,32 +748,32 @@ public class AWSController {
 //
 //        Collection<Grant> grantCollection = new ArrayList<Grant>();
 //
-//        Grant grant1 = new Grant(new CanonicalGrantee(amazonS3.getS3AccountOwner().getId()), Permission.FullControl);
+//        Grant grant1 = new Grant(new CanonicalGrantee(getAmazonS3().getS3AccountOwner().getId()), Permission.FullControl);
 //        grantCollection.add(grant1);
 //
 //        Grant grant2 = new Grant(GroupGrantee.AllUsers, Permission.Read);
 //        grantCollection.add(grant2);
 //
-//        AccessControlList bucketAcl = amazonS3.getBucketAcl(bucketName);
+//        AccessControlList bucketAcl = getAmazonS3().getBucketAcl(bucketName);
 //        bucketAcl.getGrantsAsList().clear();
 //        bucketAcl.getGrantsAsList().addAll(grantCollection);
-//        amazonS3.setBucketAcl(bucketName, bucketAcl);
+//        getAmazonS3().setBucketAcl(bucketName, bucketAcl);
 //
-//        AccessControlList objectAcl = amazonS3.getObjectAcl(bucketName, fileObjKeyName);
+//        AccessControlList objectAcl = getAmazonS3().getObjectAcl(bucketName, fileObjKeyName);
 //        objectAcl.getGrantsAsList().clear();
 //        objectAcl.getGrantsAsList().addAll(grantCollection);
-//        amazonS3.setObjectAcl(bucketName, fileObjKeyName, objectAcl);
+//        getAmazonS3().setObjectAcl(bucketName, fileObjKeyName, objectAcl);
 //
-//        //amazonS3.setObjectAcl(new SetObjectAclRequest(bucketName, fileObjKeyName, acl));
+//        //getAmazonS3().setObjectAcl(new SetObjectAclRequest(bucketName, fileObjKeyName, acl));
 //
 ////        UploadPartRequest req = new UploadPartRequest();
 ////        req.setKey("somekey");
 ////        req.setBucketName(bucketName);
 ////        req.setFile(file);
 ////
-////        amazonS3.uploadPart(req);
+////        getAmazonS3().uploadPart(req);
 //        String test="123";
-//        //amazonS3.copyPart()
+//        //getAmazonS3().copyPart()
 //
 //        //aws s3api get-object --bucket testbucketswarm --key someKey outfile --region=eu-central-1
 //

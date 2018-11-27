@@ -13,7 +13,8 @@ public abstract class SSHDependentStackHandler extends VpcDependentStackHandler 
 
     public SSHDependentStackHandler(Builder builder) {
         super(builder);
-        parameters.put("KeyName", builder.sshKeyName);
+        if(builder.sshKeyName!=null)
+            parameters.put("KeyName", builder.sshKeyName);
 
     }
 
