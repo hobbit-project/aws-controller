@@ -354,7 +354,7 @@ public class AWSController {
         waitForCompletion(stack, until, null);
     }
 
-    public void waitForCompletion(AbstractStackHandler stack, String until, String exception) throws Exception {
+    public void waitForCompletion(AbstractStackHandler stack, String until, String throwExceptionThen) throws Exception {
         //operationFinishedMutex.release();
         logger.info("Waiting for {} for stack {}", until, stack.getName());
         List<String> untilList = Arrays.asList(until);
@@ -370,7 +370,7 @@ public class AWSController {
         else
             if (stackSummary.getStackStatus().startsWith(until)) {
                 stop = true;
-            } else if (exception != null && stackSummary.getStackStatus().startsWith(exception)) {
+            } else if (throwExceptionThen != null && stackSummary.getStackStatus().startsWith(throwExceptionThen)) {
                 String errorMessage = String.format("Stack %s not reached the state %s: %s", stack.getName(), until, stackSummary.getStackStatusReason());
                 throw new Exception(errorMessage);
             } else {
@@ -729,11 +729,18 @@ public class AWSController {
                     waitForCompletion(stack, "CREATE_COMPLETE");
                 stack.setId(stackSummary.getStackId());
                 logger.info("Stack {} created", stack.getName());
-            } else if (stackSummary.getStackStatus().startsWith("ROLLBACK_")) {
-                logger.info("A rollbacked stack found. Deleting: {}", stack.getName());
-                deleteStack(stack);
-                //AWSController.waitForCompletion(stack, "DELETE_COMPLETE");
-            } else if (stackSummary.getStackStatus().equals("DELETE_IN_PROGRESS")) {
+            } else if (stackSummary.getStackStatus().contains("ROLLBACK_")) {
+                  if(stackSummary.getStackStatus().endsWith("ROLLBACK_FAILED")) {
+                      logger.info("A rollbacked stack found. Deleting: {}", stack.getName());
+                      deleteStack(stack);
+                  }
+            } else if (stackSummary.getStackStatus().startsWith("UPDATE_")) {
+                  if(stackSummary.getStackStatus().endsWith("_FAILED")) {
+                      logger.info("A rollbacked stack found. Deleting: {}", stack.getName());
+                      deleteStack(stack);
+                  }
+                stack.setId(stackSummary.getStackId());
+          } else if (stackSummary.getStackStatus().equals("DELETE_IN_PROGRESS")) {
                 logger.info("A stack {} with DELETE_IN_PROGRESS found", stack.getName());
                 waitForCompletion(stack, "DELETE_COMPLETE");
             }
