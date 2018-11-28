@@ -32,6 +32,7 @@ public class VpcClusterManager implements ICloudClusterManager {
 
 
     public VpcClusterManager(String clusterName, String sshKeyName){
+
         awsController = new AWSController();
         this.clusterName = clusterName;
 

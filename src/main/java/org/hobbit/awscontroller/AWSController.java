@@ -2,6 +2,7 @@ package org.hobbit.awscontroller;
 
 import com.amazonaws.services.autoscaling.AmazonAutoScalingClientBuilder;
 import com.amazonaws.services.autoscaling.model.*;
+import com.amazonaws.services.autoscaling.model.Tag;
 import com.amazonaws.services.ec2.AmazonEC2;
 import com.amazonaws.services.ec2.AmazonEC2AsyncClientBuilder;
 import com.amazonaws.services.ec2.model.DescribeInstancesRequest;
@@ -9,10 +10,8 @@ import com.amazonaws.services.ec2.model.DescribeInstancesResult;
 import com.amazonaws.services.ec2.model.Instance;
 import com.amazonaws.services.kms.model.NotFoundException;
 import com.amazonaws.services.neptune.AmazonNeptune;
-import com.amazonaws.services.neptune.AmazonNeptuneClient;
 import com.amazonaws.services.neptune.AmazonNeptuneClientBuilder;
 import com.amazonaws.services.neptune.model.AddRoleToDBClusterRequest;
-import org.apache.http.client.CredentialsProvider;
 import org.hobbit.awscontroller.StackHandlers.AbstractStackHandler;
 import com.amazonaws.auth.AWSCredentialsProvider;
 import com.amazonaws.auth.EnvironmentVariableCredentialsProvider;
@@ -34,6 +33,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
@@ -59,17 +61,34 @@ public class AWSController {
     String aws_role_arn;
     String aws_region;
 
-    public static ExecutorService es;
+    public static ExecutorService es = Executors.newFixedThreadPool(4);
     Semaphore finishedMutex = new Semaphore(0);
     AWSCredentialsProvider credentialsProvider;
     //private ProfileAssumeRoleCredentialsProvider credentialsProvider;
 
     public AWSController(){
-        es = Executors.newFixedThreadPool(4);
+
+        if (!System.getenv().containsKey("AWS_ACCESS_KEY_ID"))
+            logger.error("AWS_ACCESS_KEY_ID is missing");
+
+        if (!System.getenv().containsKey("AWS_SECRET_KEY"))
+            logger.error("AWS_SECRET_KEY is missing");
+
+
+        if (!System.getenv().containsKey("AWS_ROLE_ARN"))
+            logger.error("AWS_ROLE_ARN is missing");
+
+
+        if (!System.getenv().containsKey("AWS_REGION"))
+            logger.error("AWS_REGION is missing");
+
+        aws_access_key_id = System.getenv("AWS_ACCESS_KEY_ID");
+        aws_secret_key = System.getenv("AWS_SECRET_KEY");
+        aws_role_arn = System.getenv("AWS_ROLE_ARN");
+        aws_region = System.getenv("AWS_REGION");
     }
 
     public AWSController(String aws_access_key_id, String aws_secret_key, String aws_role_arn, String aws_region){
-        this();
         this.aws_access_key_id = aws_access_key_id;
         this.aws_secret_key = aws_secret_key;
         this.aws_role_arn = aws_role_arn;
@@ -80,25 +99,6 @@ public class AWSController {
     private AWSCredentialsProvider getCredentialsProvider() throws Exception {
 
         if(credentialsProvider==null) {
-            if (aws_access_key_id == null)
-                if (!System.getenv().containsKey("AWS_ACCESS_KEY_ID"))
-                    throw new Exception("AWS_ACCESS_KEY_ID is missing");
-                else aws_access_key_id = System.getenv("AWS_ACCESS_KEY_ID");
-
-            if (aws_secret_key == null)
-                if (!System.getenv().containsKey("AWS_SECRET_KEY"))
-                    throw new Exception("AWS_SECRET_KEY is missing");
-                else aws_secret_key = System.getenv("AWS_SECRET_KEY");
-
-            if (aws_role_arn == null)
-                if (!System.getenv().containsKey("AWS_ROLE_ARN"))
-                    throw new Exception("AWS_ROLE_ARN is missing");
-                else aws_role_arn = System.getenv("AWS_ROLE_ARN");
-
-            if (aws_region == null)
-                if (!System.getenv().containsKey("AWS_REGION"))
-                    throw new Exception("AWS_REGION is missing");
-                else aws_region = System.getenv("AWS_REGION");
 
             Map<String, String> defaultProfileProperties = new HashMap<>();
             defaultProfileProperties.put("region", aws_region);
@@ -128,18 +128,16 @@ public class AWSController {
 
         }
         return credentialsProvider;
-//        AmazonAutoScalingClientBuilder amazonAutoScalingBuilder = AmazonAutoScalingClientBuilder.standard();
+
+    }
+
+
+
+ //        AmazonAutoScalingClientBuilder amazonAutoScalingBuilder = AmazonAutoScalingClientBuilder.standard();
 //        amazonAutoScalingBuilder.setRegion(AWS_REGION_EU);
 //        amazonAutoScalingBuilder.setCredentials(new EnvironmentVariableCredentialsProvider());
 //        amazonAutoScalingBuilder.setCredentials(credentialsProvider);
 //        amazonAutoScaling = amazonAutoScalingBuilder.build();
-
-    }
-
-    public String getRegion() {
-        return aws_region;
-    }
-
 
     public AmazonCloudFormation getAmazonCloudFormation() throws Exception {
         if(amazonCloudFormation==null) {
@@ -477,12 +475,13 @@ public class AWSController {
         return createStacks(hierarchicalStackList, false);
     }
 
-    public List<String> createStacks(List<List<AbstractStackHandler>> hierarchicalStackList, boolean deleteStacksIfConfigNotMatching) throws Exception {
+    public List<String> createStacks(List<List<AbstractStackHandler>> hierarchicalStackList, boolean allowStacksUpdate) throws Exception {
 
-        if(deleteStacksIfConfigNotMatching){
-            List<List<AbstractStackHandler>> stackToDelete = findStacksToDelete(hierarchicalStackList);
-            deleteStacks(stackToDelete);
-        }
+//        if(allowStacksUpdate){
+//            List<List<AbstractStackHandler>> stackToUpdate = findStacksToUpdate(hierarchicalStackList);
+//            updateStacks(stackToUpdate);
+//        }
+
         List<String> newlyCreatedStackIds = new ArrayList<>();
         processStacksByLevels(hierarchicalStackList, new Callback<AbstractStackHandler, String>(){
             @Override
@@ -491,7 +490,7 @@ public class AWSController {
                 //while (stackId == null){
                 //while(stackId==null) {
                     try {
-                        stackId = createStack(stack);
+                        stackId = createStack(stack, allowStacksUpdate);
                         if(stackId!=null)
                             newlyCreatedStackIds.add(stackId);
                     } catch (Exception e) {
@@ -506,57 +505,60 @@ public class AWSController {
         return newlyCreatedStackIds;
     }
 
-    public List<List<AbstractStackHandler>> findStacksToDelete(List<List<AbstractStackHandler>> hierarchicalStackList){
-        logger.info("Checking already existing stacks");
-        List<String> names = new ArrayList<>();
-        List<List<AbstractStackHandler>> ret = new ArrayList<>();
-        for (List<AbstractStackHandler> level: hierarchicalStackList){
-            List<AbstractStackHandler> levelToDelete = new ArrayList<>();
-            for (AbstractStackHandler stack : level){
-                try {
-                    StackSummary summary = findStackByName(stack.getName());
-                    if (summary.getStackStatus().equals("CREATE_COMPLETE")){
-                        List<Parameter> parameters = getStackParameters(stack.getName());
-                        boolean requiresRecreation = false;
-                        if (parameters != null) {
-                            Map<String, String> existingStackParams = new HashMap<>();
-                            for (Parameter parameter : parameters)
-                                existingStackParams.put(parameter.getParameterKey(), parameter.getParameterValue());
-
-                            for (String paramName : stack.getParameters().keySet()) {
-                                String exisingParamValue = existingStackParams.get(paramName);
-                                String desiredParamValue = stack.getParameters().get(paramName);
-                                if (!existingStackParams.containsKey(paramName) || (!exisingParamValue.equals("****") && !existingStackParams.get(paramName).equals(desiredParamValue))) {
-                                    requiresRecreation = true;
-                                    logger.info("Param {}={}, not {} for the {} stack", paramName, exisingParamValue, desiredParamValue, stack.getName());
-                                }
-                            }
-
-                        } else
-                            requiresRecreation = true;
-
-                        if (requiresRecreation) {
-                            logger.info("Stack {} requires recreation with new parameters. The existing stack will be deleted", stack.getName());
-                            levelToDelete.add(stack);
-                            names.add(stack.getName());
-                        }
-                    }
-                }
-                catch (NotFoundException e){
-                    //logger.error("");
-                }
-                catch (Exception e){
-                    //logger.error("Problem with getting stack parameters: {}", stack.getName());
-                }
-
-            }
-            if(levelToDelete.size()>0)
-                ret.add(levelToDelete);
-        }
-        if(names.size()>0)
-            logger.info("The following stacks will be deleted: {}", String.join(",", names));
-        return ret;
-    }
+//    public List<List<AbstractStackHandler>> findStacksToUpdate(List<List<AbstractStackHandler>> hierarchicalStackList){
+//        logger.info("Checking already existing stacks");
+//
+//        List<List<AbstractStackHandler>> ret = new ArrayList<>();
+//        List<String> names = new ArrayList<>();
+//
+//        for (List<AbstractStackHandler> level: hierarchicalStackList){
+//            List<AbstractStackHandler> stacksToUpdateOnTheLevel = new ArrayList<>();
+//            Map<AbstractStackHandler, Integer> stacksToAlterOnTheLevel = new HashMap<>();
+//            for (AbstractStackHandler stack : level){
+//                try {
+//                    StackSummary summary = findStackByName(stack.getName());
+//                    if (!summary.getStackStatus().contains("PROGRESS")){
+//                        List<Parameter> parameters = getStackParameters(stack.getName());
+//                        boolean requiresUpdate = false;
+//                        if (parameters != null) {
+//                            Map<String, String> existingStackParams = new HashMap<>();
+//                            for (Parameter parameter : parameters)
+//                                existingStackParams.put(parameter.getParameterKey(), parameter.getParameterValue());
+//
+//                            for (String paramName : stack.getParameters().keySet()) {
+//                                String exisingParamValue = existingStackParams.get(paramName);
+//                                String desiredParamValue = stack.getParameters().get(paramName);
+//                                if (!existingStackParams.containsKey(paramName) || (!exisingParamValue.equals("****") && !existingStackParams.get(paramName).equals(desiredParamValue))) {
+//                                    requiresUpdate = true;
+//                                    logger.info("Param {}={}, not {} for the {} stack", paramName, exisingParamValue, desiredParamValue, stack.getName());
+//                                }
+//                            }
+//
+//                        } else
+//                            requiresUpdate = true;
+//
+//                        if (requiresUpdate){
+//                            logger.info("Stack {} requires update with new parameters. The existing stack will be deleted", stack.getName());
+//                            stacksToUpdateOnTheLevel.add(stack);
+//                            names.add(stack.getName());
+//                        }
+//                    }
+//                }
+//                catch (NotFoundException e){
+//                    //logger.error("");
+//                }
+//                catch (Exception e){
+//                    //logger.error("Problem with getting stack parameters: {}", stack.getName());
+//                }
+//
+//            }
+//            if(stacksToUpdateOnTheLevel.size()>0)
+//                ret.add(stacksToUpdateOnTheLevel);
+//        }
+//        if(names.size()>0)
+//            logger.info("The following stacks will be updated: {}", String.join(",", names));
+//        return ret;
+//    }
 
     public void deleteStacksSequental(List<AbstractStackHandler> stackList) throws Exception {
         for (AbstractStackHandler stack : stackList){
@@ -607,10 +609,30 @@ public class AWSController {
 //        es.invokeAll(tasks);
     }
 
+    public void updateStacks(List<List<AbstractStackHandler>> hierarchicalStackList) throws Exception {
+
+        processStacksByLevels(Lists.reverse(hierarchicalStackList), new Callback<AbstractStackHandler, String>(){
+            @Override
+            public String call(AbstractStackHandler stack){
+                //while (stackId == null){
+                try {
+                    updateStack(stack);
+                    logger.debug("Stack {} was updated", stack.getName());
+                } catch (Exception e) {
+                    logger.error("Stack {} was not updated: {}", stack.getName(), e.getMessage());
+                    //logger.info("Trying to recreate the stack {}", stack.getName());
+                }
+                return null;
+            }
+        });
+
+    }
+
     private void processStacksByLevels(List<List<AbstractStackHandler>> hierarchicalStackList, Callback<AbstractStackHandler, String> action) throws Exception {
 
-
+        int levelIndex=0;
         for (List<AbstractStackHandler> level: hierarchicalStackList){
+            levelIndex++;
             List<Callable<String>> levelTasks = new ArrayList();
             List<String> layerStackNames = new ArrayList<>();
             int i=0;
@@ -654,7 +676,7 @@ public class AWSController {
             }
 
             if(took>0)
-                logger.info("Layer {} finished in {} s", String.join("_", layerStackNames), took);
+                logger.info("Level {} finished in {} s ({})", levelIndex, took, String.join("_", layerStackNames));
         }
     }
 
@@ -668,9 +690,40 @@ public class AWSController {
     }
 
     public String createStack(AbstractStackHandler stack) throws Exception {
+        return createStack(stack, false);
+    }
 
+    public String createStack(AbstractStackHandler stack, boolean allowUpdate) throws Exception {
         StackSummary stackSummary = findStackByName(stack.getName());
         if(stackSummary!=null){
+          if(allowUpdate){
+              if (!stackSummary.getStackStatus().contains("PROGRESS")){
+                  List<Parameter> parameters = getStackParameters(stack.getName());
+                  boolean requiresUpdate = false;
+                  if (parameters != null) {
+                      Map<String, String> existingStackParams = new HashMap<>();
+                      for (Parameter parameter : parameters)
+                          existingStackParams.put(parameter.getParameterKey(), parameter.getParameterValue());
+
+                      for (String paramName : stack.getParameters().keySet()) {
+                          String exisingParamValue = existingStackParams.get(paramName);
+                          String desiredParamValue = stack.getParameters().get(paramName);
+                          if (!existingStackParams.containsKey(paramName) || (!exisingParamValue.equals("****") && !existingStackParams.get(paramName).equals(desiredParamValue))) {
+                              requiresUpdate = true;
+                              logger.info("Param {}={}, not {} for the {} stack", paramName, exisingParamValue, desiredParamValue, stack.getName());
+                          }
+                      }
+
+                  } else
+                      requiresUpdate = true;
+
+                  if (requiresUpdate){
+                      updateStack(stack);
+                      return stack.getId();
+                  }
+              }
+          }
+
           if (stackSummary.getStackStatus().startsWith("CREATE_")){
                 if(stackSummary.getStackStatus().equals("CREATE_IN_PROGRESS"))
                     waitForCompletion(stack, "CREATE_COMPLETE");
@@ -694,7 +747,7 @@ public class AWSController {
         if(stack.preExecute!=null)
             stack.preExecute.call();
 
-        CreateStackRequest createStackRequest = stack.prepareCreateRequest(this);
+        CreateStackRequest createStackRequest = prepareCreateRequest(stack);
         CreateStackResult createStackResult = getAmazonCloudFormation().createStack(createStackRequest);
         String stackId = createStackResult.getStackId();
         //try {
@@ -713,6 +766,56 @@ public class AWSController {
         return stack.getId();
     }
 
+    public void updateStack(AbstractStackHandler stack) throws Exception {
+        StackSummary stackSummary = findStackByName(stack.getName());
+        Boolean creationRequired = false;
+        if(stackSummary!=null){
+            if (stackSummary.getStackStatus().startsWith("CREATE_")){
+                if(stackSummary.getStackStatus().equals("CREATE_IN_PROGRESS"))
+                    waitForCompletion(stack, "CREATE_COMPLETE");
+                logger.info("Stack {} updated", stack.getName());
+            } else if (stackSummary.getStackStatus().startsWith("UPDATE_")){
+                if(stackSummary.getStackStatus().equals("UPDATE_IN_PROGRESS")) {
+                    waitForCompletion(stack, "UPDATE_COMPLETE");
+                    logger.info("Stack {} updated", stack.getName());
+                }else if (stackSummary.getStackStatus().contains("ROLLBACK_")) {
+                    logger.info("A rollbacked stack found. Deleting: {}", stack.getName());
+                    deleteStack(stack);
+                    logger.info("Stack {} deleted and would be recreated", stack.getName());
+                    creationRequired = true;
+                }
+            }  else if (stackSummary.getStackStatus().equals("DELETE_IN_PROGRESS")) {
+                logger.info("A stack {} with DELETE_IN_PROGRESS found", stack.getName());
+                waitForCompletion(stack, "DELETE_COMPLETE");
+                logger.info("Stack {} deleted and would be recreated", stack.getName());
+                creationRequired = true;
+            }
+        }
+
+        if(stack.getId()!=null)
+            return;
+
+        if(creationRequired){
+            createStack(stack);
+            return;
+        }
+
+        logger.info("Updating stack: {}", stack.getName());
+
+        if(stack.preExecute!=null)
+            stack.preExecute.call();
+
+        UpdateStackRequest updateStackRequest = prepareUpdateRequest(stack);
+        UpdateStackResult updateStackResult = getAmazonCloudFormation().updateStack(updateStackRequest);
+
+        waitForCompletion(stack, "UPDATE_COMPLETE", "UPDATE_ROLLBACK_");
+
+        if(stack.postExecute!=null)
+            stack.postExecute.call();
+
+        return;
+    }
+
     public void deleteStack(AbstractStackHandler stack) throws Exception {
         //logger.debug("Checking stack {} before deletion", stack.getName());
         StackSummary stackSummary = findStackByName(stack.getName());
@@ -725,7 +828,111 @@ public class AWSController {
             getAmazonCloudFormation().deleteStack(stackRequest);
             waitForCompletion(stack, "DELETE_COMPLETE", "CREATE_COMPLETE");
         }
+    }
 
+    public CreateStackRequest prepareCreateRequest(AbstractStackHandler stack) throws Exception{
+
+        CreateStackRequest createStackRequest = new CreateStackRequest();
+        createStackRequest.setStackName(stack.getName());
+        createStackRequest.setCapabilities(Arrays.asList(new String[]{ "CAPABILITY_IAM" }));
+
+        if(stack.getBodyFilePath()!=null){
+            createStackRequest.setTemplateBody(readBodyFromFile(stack.getBodyFilePath()));
+        }else if(stack.getBodyUrl()!=null)
+            createStackRequest.setTemplateURL(stack.getBodyUrl());
+        else {
+            throw new Exception("Stack body (file or URL) is not specified");
+        }
+
+
+        List tagsList = new ArrayList<Parameter>();
+        Map<String, String> tags = stack.getTags();
+        for (String key : tags.keySet())
+            tagsList.add(new Tag().withKey(key).withValue(tags.get(key)));
+        createStackRequest.setTags(tagsList);
+
+
+        List<Parameter>  paramList = createParamsList(stack);
+        createStackRequest.setParameters(paramList);
+
+        return createStackRequest;
+    }
+
+    public UpdateStackRequest prepareUpdateRequest(AbstractStackHandler stack) throws Exception{
+
+        UpdateStackRequest updateStackRequest = new UpdateStackRequest();
+        updateStackRequest.setStackName(stack.getName());
+        updateStackRequest.setCapabilities(Arrays.asList(new String[]{ "CAPABILITY_IAM" }));
+
+        if(stack.getBodyFilePath()!=null){
+            updateStackRequest.setTemplateBody(readBodyFromFile(stack.getBodyFilePath()));
+        }else if(stack.getBodyUrl()!=null)
+            updateStackRequest.setTemplateURL(stack.getBodyUrl());
+        else {
+            throw new Exception("Stack body (file or URL) is not specified");
+        }
+
+        List tagsList = new ArrayList<Parameter>();
+        Map<String, String> tags = stack.getTags();
+        for (String key : tags.keySet())
+            tagsList.add(new Tag().withKey(key).withValue(tags.get(key)));
+        updateStackRequest.setTags(tagsList);
+
+        List<Parameter>  paramList = createParamsList(stack);
+        updateStackRequest.setParameters(paramList);
+
+        return updateStackRequest;
+    }
+
+    private String readBodyFromFile(String filename) throws IOException {
+        String body = new String(Files.readAllBytes(Paths.get(filename)));
+//        URL url = Resources.getResource(filename);
+//        String body = Resources.toString(url, Charset.defaultCharset());
+        return body;
+    }
+
+    private List<Parameter> createParamsList(AbstractStackHandler stack) throws Exception {
+        List paramList = new ArrayList<Parameter>();
+        Map<String, Map<String, String>> parentStacksResources = new HashMap<>();
+        Map<String, String> parameters = stack.getParameters();
+        for (String key : parameters.keySet())
+            if(parameters.get(key)!=null) {
+                String value = parameters.get(key);
+                if(value.startsWith("${")){
+                    String[] splitted = value.split("}.");
+                    String parentStackName = splitted[0].substring(2);
+                    String parentResourceKey = splitted[1];
+
+                    String type="";
+                    if(parentResourceKey.toLowerCase().startsWith("resources")){
+                        type = ".resources";
+                        parentResourceKey = parentResourceKey.substring(10);
+                    }
+
+                    if(parentResourceKey.toLowerCase().startsWith("outputs")){
+                        type=".outputs";
+                        parentResourceKey = parentResourceKey.substring(8);
+                    }
+
+                    if (!parentStacksResources.containsKey(parentStackName+type)) {
+                        Map<String, String> values=null;
+                        if(type.equals(".outputs"))
+                            values = getStackOutputsMap(parentStackName);
+                        else if(type.equals(".resources"))
+                            values = getStackResourcesMap(parentStackName);
+                        if(values==null)
+                            throw new Exception(value+" cannot be imported");
+                        parentStacksResources.put(parentStackName+type, values);
+                    }
+                    value = parentStacksResources.get(parentStackName+type).get(parentResourceKey);
+                    if(value==null)
+                        throw new Exception(parameters.get(key)+ " is null");
+
+                }
+
+                paramList.add(new Parameter().withParameterKey(key).withParameterValue(value));
+            }
+        return paramList;
     }
 
 //    public static void uploadToBucket(){
