@@ -1,6 +1,6 @@
 # aws-controller
 
-Architecture for building resource managers for cloud resources.
+Architecture for building managers for AWS-based resources.
 
 ## Features
 - Clients to the following AWS Services: Cloud Formation, EC2, AutoScaling, S3, etc.
