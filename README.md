@@ -3,9 +3,9 @@
 Architecture for building managers for AWS-based resources.
 
 ## Features
-- Clients to the following AWS Services: Cloud Formation, EC2, AutoScaling, S3, etc.
-- Layered stacks execution
-- SSH Client
+- Clients to the number of AWS services (Cloud Formation, EC2, AutoScaling, S3, etc.) initialized with the same credentials.
+- Layered stacks execution (for execution increasing parallelism)
+- Hierarchical SSH Client with port forwarding (for accessing remotely deployed services via bastion)
 
 ## Manager examples:
 - [VPC Cluster Manager](https://github.com/hobbit-project/aws-controller/blob/master/src/main/java/org/hobbit/cloud/vpc/VpcClusterManager.java) as the simpliest example of cloud resources manager. It creates VPC, Bastion and NAT hosts using the [Widdix templates](https://github.com/widdix/aws-cf-templates/tree/master/vpc) (not part of the repo). 
