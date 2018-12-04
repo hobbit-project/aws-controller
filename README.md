@@ -1,4 +1,4 @@
-# aws-controller
+# AWS Controller
 
 Architecture for building managers for AWS-based resources.
 
