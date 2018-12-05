@@ -1,4 +1,2 @@
 language: java
-script:
-  - make package
 sudo: required
