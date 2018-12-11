@@ -1,5 +1,7 @@
 # AWS Controller
 
+[![Build Status](https://travis-ci.org/hobbit-project/aws-controller.svg?branch=master)](https://travis-ci.org/hobbit-project/aws-controller)
+
 Architecture for building managers for AWS-based resources.
 
 ## Features
