@@ -209,6 +209,7 @@ public class AWSController {
             }
             nextToken = result.getNextToken();
             ret = result.getStackSummaries().stream().filter(
+                    //s->s.getStackName().equals(name) && (s.getStackStatus().endsWith("_COMPLETE") || s.getStackStatus().endsWith("_IN_PROGRESS") || s.getStackStatus().endsWith("_FAILED"))
                     s->s.getStackName().equals(name) && !s.getStackStatus().equals("DELETE_COMPLETE")
             ).collect(Collectors.toList());
         }
@@ -730,10 +731,10 @@ public class AWSController {
                 stack.setId(stackSummary.getStackId());
                 logger.info("Stack {} created", stack.getName());
             } else if (stackSummary.getStackStatus().contains("ROLLBACK_")) {
-                  if(stackSummary.getStackStatus().endsWith("ROLLBACK_FAILED")) {
+                  //if(stackSummary.getStackStatus().endsWith("ROLLBACK_FAILED")) {
                       logger.info("A rollbacked stack found. Deleting: {}", stack.getName());
                       deleteStack(stack);
-                  }
+                  //}
             } else if (stackSummary.getStackStatus().startsWith("UPDATE_")) {
                   if(stackSummary.getStackStatus().endsWith("_FAILED")) {
                       logger.info("A rollbacked stack found. Deleting: {}", stack.getName());

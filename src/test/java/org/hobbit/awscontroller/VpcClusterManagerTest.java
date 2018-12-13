@@ -21,7 +21,7 @@ public class VpcClusterManagerTest {
     @Before
     public void init() throws Exception {
 
-        vpcClusterManager = new VpcClusterManager("hobbit","hobbit.pem");
+        vpcClusterManager = new VpcClusterManager("hobbit","hobbit_2");
     }
 
 
