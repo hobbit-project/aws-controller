@@ -709,7 +709,16 @@ public class AWSController {
                       for (String paramName : stack.getParameters().keySet()) {
                           String exisingParamValue = existingStackParams.get(paramName);
                           String desiredParamValue = stack.getParameters().get(paramName);
-                          if (!existingStackParams.containsKey(paramName) || (!exisingParamValue.equals("****") && !existingStackParams.get(paramName).equals(desiredParamValue))) {
+                          if (!existingStackParams.containsKey(paramName) || (!exisingParamValue.equals("****") && !existingStackParams.get(paramName).equals(desiredParamValue))){
+                              if(paramName.equals("MaxSize")){
+                                  List<StackResourceSummary> asgs = getStackResources(stack.getName(), "AWS::AutoScaling::AutoScalingGroup");
+                                  if(asgs.size()>0){
+                                      int runningMachines = getEC2InstancesByAutoscalingGroupName(asgs.get(0).getPhysicalResourceId()).size();
+                                      int valueToSet = Math.max(Integer.parseInt(desiredParamValue), runningMachines);
+                                      stack.getParameters().put(paramName, String.valueOf(valueToSet));
+                                  }
+                              }
+
                               requiresUpdate = true;
                               logger.info("Param {}={}, not {} for the {} stack", paramName, exisingParamValue, desiredParamValue, stack.getName());
                           }
@@ -814,13 +823,18 @@ public class AWSController {
             stack.preExecute.call();
 
         UpdateStackRequest updateStackRequest = prepareUpdateRequest(stack);
-        UpdateStackResult updateStackResult = getAmazonCloudFormation().updateStack(updateStackRequest);
+        try {
+            UpdateStackResult updateStackResult = getAmazonCloudFormation().updateStack(updateStackRequest);
+            waitForCompletion(stack, "UPDATE_COMPLETE", "UPDATE_ROLLBACK_");
 
-        waitForCompletion(stack, "UPDATE_COMPLETE", "UPDATE_ROLLBACK_");
-
-        if(stack.postExecute!=null)
-            stack.postExecute.call();
-
+            if (stack.postExecute != null)
+                stack.postExecute.call();
+        }
+        catch (Exception e){
+            logger.error("Failed to update stack {}: {}", stack.getName(), e.getLocalizedMessage());
+            e.printStackTrace();
+            throw e;
+        }
         return;
     }
 
@@ -903,9 +917,9 @@ public class AWSController {
         List paramList = new ArrayList<Parameter>();
         Map<String, Map<String, String>> parentStacksResources = new HashMap<>();
         Map<String, String> parameters = stack.getParameters();
-        for (String key : parameters.keySet())
-            if(parameters.get(key)!=null) {
-                String value = parameters.get(key);
+        for (String paramName : parameters.keySet())
+            if(parameters.get(paramName)!=null) {
+                String value = parameters.get(paramName);
                 if(value.startsWith("${")){
                     String[] splitted = value.split("}.");
                     String parentStackName = splitted[0].substring(2);
@@ -934,11 +948,11 @@ public class AWSController {
                     }
                     value = parentStacksResources.get(parentStackName+type).get(parentResourceKey);
                     if(value==null)
-                        throw new Exception(parameters.get(key)+ " is null");
+                        throw new Exception(parameters.get(paramName)+ " is null");
 
                 }
 
-                paramList.add(new Parameter().withParameterKey(key).withParameterValue(value));
+                paramList.add(new Parameter().withParameterKey(paramName).withParameterValue(value));
             }
         return paramList;
     }
