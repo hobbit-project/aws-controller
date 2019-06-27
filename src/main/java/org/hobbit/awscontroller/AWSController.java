@@ -841,9 +841,9 @@ public class AWSController {
     public void deleteStack(AbstractStackHandler stack) throws Exception {
         //logger.debug("Checking stack {} before deletion", stack.getName());
         StackSummary stackSummary = findStackByName(stack.getName());
-        if(stackSummary==null) {
-            //logger.info("Stack " + stack.getName() + " not found");
-        }else {
+        if(stackSummary==null)
+            logger.info("Stack " + stack.getName() + " not found");
+        else {
             logger.info("Deleting stack {}", stack.getName());
             DeleteStackRequest stackRequest = new DeleteStackRequest();
             stackRequest.setStackName(stackSummary.getStackName());
