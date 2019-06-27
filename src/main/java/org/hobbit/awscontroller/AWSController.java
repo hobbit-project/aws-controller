@@ -2,7 +2,7 @@ package org.hobbit.awscontroller;
 
 import com.amazonaws.services.autoscaling.AmazonAutoScalingClientBuilder;
 import com.amazonaws.services.autoscaling.model.*;
-import com.amazonaws.services.autoscaling.model.Tag;
+import com.amazonaws.services.cloudformation.model.Tag;
 import com.amazonaws.services.ec2.AmazonEC2;
 import com.amazonaws.services.ec2.AmazonEC2AsyncClientBuilder;
 import com.amazonaws.services.ec2.model.DescribeInstancesRequest;
@@ -576,7 +576,6 @@ public class AWSController {
                 //while (stackId == null){
                 try {
                     deleteStack(stack);
-                    logger.debug("Stack {} was deleted", stack.getName());
                 } catch (Exception e) {
                     logger.error("Stack {} was not deleted: {}", stack.getName(), e.getMessage());
                     //logger.info("Trying to recreate the stack {}", stack.getName());
@@ -849,6 +848,7 @@ public class AWSController {
             stackRequest.setStackName(stackSummary.getStackName());
             getAmazonCloudFormation().deleteStack(stackRequest);
             waitForCompletion(stack, "DELETE_COMPLETE", "CREATE_COMPLETE");
+            logger.debug("Stack {} was deleted", stack.getName());
         }
     }
 
